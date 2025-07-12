@@ -12,7 +12,7 @@ ALWGameMode::ALWGameMode()
 		DefaultPawnClass = CharacterPlayerClassRef.Class;
 	}
 
-	static ConstructorHelpers::FClassFinder<APlayerController> PlayerControllerClassRef = TEXT("/Script/LightInTheWorld.LWPlayerController");
+	static ConstructorHelpers::FClassFinder<APlayerController> PlayerControllerClassRef = TEXT("/Game/LightInTheWorld/Blueprints/BP_LWPlayerController.BP_LWPlayerController_C");
 	if (PlayerControllerClassRef.Class)
 	{
 		PlayerControllerClass = PlayerControllerClassRef.Class;

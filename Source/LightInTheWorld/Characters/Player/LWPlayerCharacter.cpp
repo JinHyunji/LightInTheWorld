@@ -10,6 +10,13 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "LWCharacterControlData.h"
+#include "LWComboActionData.h"
+#include "Characters/Components/LWCharacterStatComponent.h"
+#include "Physics/LWCollision.h"
+#include "UI/LWWidgetComponent.h"
+#include "UI/LWHpBarWidget.h"
+#include "UI/LWHUDWidget.h"
+#include "Engine/DamageEvents.h"
 
 ALWPlayerCharacter::ALWPlayerCharacter()
 {
@@ -20,7 +27,7 @@ ALWPlayerCharacter::ALWPlayerCharacter()
 
 	// Capsule
 	GetCapsuleComponent()->InitCapsuleSize(50.f, 100.f);
-	GetCapsuleComponent()->SetCollisionProfileName(TEXT("Pawn")); // Must be modified
+	GetCapsuleComponent()->SetCollisionProfileName(CPROFILE_LWCAPSULE);
 
 	// Movement
 	GetCharacterMovement()->bOrientRotationToMovement = true;
@@ -40,6 +47,13 @@ ALWPlayerCharacter::ALWPlayerCharacter()
 	if (CharacterMeshRef.Object)
 	{
 		GetMesh()->SetSkeletalMesh(CharacterMeshRef.Object);
+	}
+
+	// Animation
+	static ConstructorHelpers::FClassFinder<UAnimInstance> AnimInstanceClassRef(TEXT("/Game/LightInTheWorld/Animation/ABP_PlayerCharacter.ABP_PlayerCharacter_C"));
+	if (AnimInstanceClassRef.Class)
+	{
+		GetMesh()->SetAnimInstanceClass(AnimInstanceClassRef.Class);
 	}
 
 	// Character Control Data
@@ -128,6 +142,50 @@ ALWPlayerCharacter::ALWPlayerCharacter()
 	{
 		AttackAction = InputAttackActionRef.Object;
 	}
+
+	// Combo Action
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ComboActionMontageRef(TEXT("/Script/Engine.AnimMontage'/Game/LightInTheWorld/Animation/AM_ComboAttack.AM_ComboAttack'"));
+	if (ComboActionMontageRef.Object)
+	{
+		ComboActionMontage = ComboActionMontageRef.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<ULWComboActionData> ComboActionDataRef(TEXT("/Script/LightInTheWorld.LWComboActionData'/Game/LightInTheWorld/CharacterAction/LWA_ComboAttack.LWA_ComboAttack'"));
+	if (ComboActionDataRef.Object)
+	{
+		ComboActionData = ComboActionDataRef.Object;
+	}
+
+	// Dodge
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> DodgeMontageRef(TEXT("/Script/Engine.AnimMontage'/Game/LightInTheWorld/Animation/AM_Dodge.AM_Dodge'"));
+	if (DodgeMontageRef.Object)
+	{
+		DodgeMontage = DodgeMontageRef.Object;
+	}
+
+	// Stat Component
+	Stat = CreateDefaultSubobject<ULWCharacterStatComponent>(TEXT("Stat"));
+
+	// Character Widget Component
+	//HpBar = CreateDefaultSubobject<ULWWidgetComponent>(TEXT("Widget"));
+	//HpBar->SetupAttachment(GetMesh());
+	//HpBar->SetRelativeLocation(FVector(0.f, 0.f, 200.f));
+	//static ConstructorHelpers::FClassFinder<UUserWidget> HpBarWidgetRef(TEXT("/Game/LightInTheWorld/UI/WBP_HpBar.WBP_HpBar_C"));
+	//if (HpBarWidgetRef.Class)
+	//{
+	//	HpBar->SetWidgetClass(HpBarWidgetRef.Class);
+	//	HpBar->SetWidgetSpace(EWidgetSpace::Screen); // 2D
+	//	HpBar->SetDrawSize(FVector2D(190.f, 25.f));
+	//	HpBar->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	//}
+}
+
+void ALWPlayerCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	//Stat->OnHpZero.AddUObject(this, &ALWPlayerCharacter::SetDead);
+	Stat->OnStatChanged.AddUObject(this, &ALWPlayerCharacter::ApplyStat);
 }
 
 void ALWPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -139,7 +197,7 @@ void ALWPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACharacter::Jump);
 	EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 	EnhancedInputComponent->BindAction(DodgeAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::Dodge);
-	EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Triggered, this, &ALWPlayerCharacter::Attack);
+	EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::Attack);
 	EnhancedInputComponent->BindAction(ChangeControlAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::ChangeCharacterControl);
 	EnhancedInputComponent->BindAction(ShoulderMoveAction, ETriggerEvent::Triggered, this, &ALWPlayerCharacter::ShoulderMove);
 	EnhancedInputComponent->BindAction(ShoulderLookAction, ETriggerEvent::Triggered, this, &ALWPlayerCharacter::ShoulderLook);
@@ -147,6 +205,22 @@ void ALWPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EnhancedInputComponent->BindAction(InventoryAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::ShowInventory);
 	EnhancedInputComponent->BindAction(InteractionAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::Interaction);
 
+}
+
+int32 ALWPlayerCharacter::GetLevel()
+{
+	return Stat->GetCurrentLevel();
+}
+
+void ALWPlayerCharacter::SetLevel(int32 NewLevel)
+{
+	Stat->SetLevelStat(NewLevel);
+}
+
+void ALWPlayerCharacter::ApplyStat(const FLWCharacterStat& BaseStat, const FLWCharacterStat& ModifierStat)
+{
+	float MovementSpeed = (BaseStat + ModifierStat).MovementSpeed;
+	GetCharacterMovement()->MaxWalkSpeed = MovementSpeed;
 }
 
 void ALWPlayerCharacter::BeginPlay()
@@ -247,6 +321,98 @@ void ALWPlayerCharacter::QuaterMove(const FInputActionValue& Value)
 	AddMovementInput(MoveDirection, MovementVectorSize);
 }
 
+void ALWPlayerCharacter::ProcessComboCommand()
+{
+	if (CurrentCombo == 0)
+	{
+		ComboActionBegin();
+		return;
+	}
+
+	if (!ComboTimerHandle.IsValid())
+	{
+		HasNextComboCommand = false;
+	}
+	else
+	{
+		HasNextComboCommand = true;
+	}
+}
+
+void ALWPlayerCharacter::ComboActionBegin()
+{
+	if (GetCharacterMovement()->IsFalling())
+	{
+		bPendingAttackOnLanding = true;
+		return;
+	}
+
+	ExecuteComboAction();
+}
+
+void ALWPlayerCharacter::ExecuteComboAction()
+{
+	// Combo Status
+	CurrentCombo = 1;
+
+	// Movement Setting
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_None);
+
+	// Animation Setting
+	const float AttackSpeedRate = Stat->GetTotalStat().AttackSpeed;
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	AnimInstance->Montage_Play(ComboActionMontage, AttackSpeedRate);
+
+	FOnMontageEnded EndDelegate;
+	EndDelegate.BindUObject(this, &ALWPlayerCharacter::ComboActionEnd);
+	AnimInstance->Montage_SetEndDelegate(EndDelegate, ComboActionMontage);
+
+	ComboTimerHandle.Invalidate();
+	SetComboCheckTimer();
+}
+
+
+void ALWPlayerCharacter::ComboActionEnd(UAnimMontage* TargetMontage, bool IsProperlyEnded)
+{
+	ensure(CurrentCombo != 0);
+	CurrentCombo = 0;
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
+
+	NotifyComboActionEnd();
+}
+
+void ALWPlayerCharacter::NotifyComboActionEnd()
+{
+}
+
+void ALWPlayerCharacter::SetComboCheckTimer()
+{
+	int32 ComboIndex = CurrentCombo - 1;
+	ensure(ComboActionData->EffectiveFrameCount.IsValidIndex(ComboIndex));
+
+	const float AttackSpeedRate = Stat->GetTotalStat().AttackSpeed;
+	float ComboEffectiveTime = (ComboActionData->EffectiveFrameCount[ComboIndex] / ComboActionData->FrameRate) / AttackSpeedRate;
+	if (ComboEffectiveTime > 0.f)
+	{
+		GetWorld()->GetTimerManager().SetTimer(ComboTimerHandle, this, &ALWPlayerCharacter::ComboCheck, ComboEffectiveTime, false);
+	}
+}
+
+void ALWPlayerCharacter::ComboCheck()
+{
+	ComboTimerHandle.Invalidate();
+	if (HasNextComboCommand)
+	{
+		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+		CurrentCombo = FMath::Clamp(CurrentCombo + 1, 1, ComboActionData->MaxComboCount);
+		FName NextSection = *FString::Printf(TEXT("%s%d"), *ComboActionData->MontageSectionNamePrefix, CurrentCombo);
+		AnimInstance->Montage_JumpToSection(NextSection, ComboActionMontage);
+		SetComboCheckTimer();
+		HasNextComboCommand = false;
+	}
+}
+
 void ALWPlayerCharacter::ChangeCharacterControl()
 {
 	if (CurrentCharacterControlType == ECharacterControlType::Quater)
@@ -261,8 +427,80 @@ void ALWPlayerCharacter::ChangeCharacterControl()
 
 void ALWPlayerCharacter::Attack()
 {
-	UE_LOG(LogTemp, Log, TEXT("Pressed Attack"));
+	ProcessComboCommand();
+}
 
+void ALWPlayerCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+
+	if (bPendingAttackOnLanding)
+	{
+		bPendingAttackOnLanding = false;
+		ComboActionBegin();
+	}
+}
+
+void ALWPlayerCharacter::AttackHitCheck()
+{
+	FHitResult OutHitResult;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(Attack), false, this); 
+
+	const float AttackRange = Stat->GetTotalStat().AttackRange;
+	const float AttackRadius = Stat->GetAttackRadius();
+	const float AttackDamage = Stat->GetTotalStat().Attack;
+	const FVector Start = GetActorLocation() + GetActorForwardVector() * GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const FVector End = Start + GetActorForwardVector() * AttackRange;
+
+	bool HitDetected = GetWorld()->SweepSingleByChannel(OutHitResult, Start, End, FQuat::Identity, CCHANNEL_LWACTION, FCollisionShape::MakeSphere(AttackRadius), Params);
+	if (HitDetected)
+	{
+		FDamageEvent DamageEvent;
+		OutHitResult.GetActor()->TakeDamage(AttackDamage, DamageEvent, GetController(), this);
+	}
+	
+#if ENABLE_DRAW_DEBUG
+	FVector CapsuleOrigin = Start + (End - Start) * 0.5;
+	float CapsuleHalfHeight = AttackRange * 0.5f + AttackRadius;
+	FColor DrawColor = HitDetected ? FColor::Green : FColor::Red;
+
+	DrawDebugCapsule(GetWorld(), CapsuleOrigin, CapsuleHalfHeight, AttackRadius, FRotationMatrix::MakeFromZ(GetActorForwardVector()).ToQuat(), DrawColor, false, 5.f);
+	//DrawDebugCapsule(GetWorld(), GetActorLocation(), 88.f, 34.f, FQuat::Identity, FColor::Red, false, 5.f);
+#endif
+}
+
+float ALWPlayerCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	Super::TakeDamage(Damage, DamageEvent, EventInstigator, DamageCauser);
+
+	Stat->ApplyDamage(Damage);
+
+	return Damage;
+}
+
+
+void ALWPlayerCharacter::SetupCharacterWidget(ULWUserWidget* InUserWidget)
+{
+	ULWHpBarWidget* HpBarWidget = Cast<ULWHpBarWidget>(InUserWidget);
+	if (HpBarWidget)
+	{
+		HpBarWidget->UpdateStat(Stat->GetBaseStat(), Stat->GetModifierStat());
+		HpBarWidget->UpdateHpBar(Stat->GetCurrentHp());
+		Stat->OnHpChanged.AddUObject(HpBarWidget, &ULWHpBarWidget::UpdateHpBar);
+		Stat->OnStatChanged.AddUObject(HpBarWidget, &ULWHpBarWidget::UpdateStat);
+	}
+}
+
+void ALWPlayerCharacter::SetupHUDWidget(ULWHUDWidget* InHUDWidget)
+{
+	if (InHUDWidget)
+	{
+		InHUDWidget->UpdateHpBar(Stat->GetCurrentHp());
+		InHUDWidget->UpdateStat(Stat->GetBaseStat(), Stat->GetModifierStat());
+
+		Stat->OnHpChanged.AddUObject(InHUDWidget, &ULWHUDWidget::UpdateHpBar);
+		Stat->OnStatChanged.AddUObject(InHUDWidget, &ULWHUDWidget::UpdateStat);
+	}
 }
 
 void ALWPlayerCharacter::ShowInventory()
@@ -277,7 +515,54 @@ void ALWPlayerCharacter::Interaction()
 
 void ALWPlayerCharacter::Dodge()
 {
-	UE_LOG(LogTemp, Log, TEXT("Pressed Dodge"));
+	DodgeActionBegin();
+}
+
+void ALWPlayerCharacter::SetDead()
+{
+}
+
+void ALWPlayerCharacter::PlayDeadAnimation()
+{
+}
+
+
+void ALWPlayerCharacter::DodgeActionBegin()
+{
+	/*if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetIgnoreLookInput(true);
+		PC->SetIgnoreMoveInput(true);
+	}*/
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+
+	// 공중에 있거나, 정지됐거나, 몽타주가 아직 실행 중인 경우는 return
+	if (Movement->IsFalling()) return; 
+	if (Movement->GetLastInputVector() == FVector(0, 0, 0)) return;
+	if (GetMesh()->GetAnimInstance()->Montage_IsPlaying(DodgeMontage)) return;
+	PlayDodgeAnimation();
+}
+
+void ALWPlayerCharacter::DodgeActionEnd(UAnimMontage* TargetMontage, bool IsProperlyEnded)
+{
+	/*if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetIgnoreLookInput(false);
+		PC->SetIgnoreMoveInput(false);
+	}*/
+}
+
+void ALWPlayerCharacter::PlayDodgeAnimation()
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance)
+	{
+		AnimInstance->Montage_Play(DodgeMontage, 1.5f);
+	} 
+
+	FOnMontageEnded EndDelegate;
+	EndDelegate.BindUObject(this, &ALWPlayerCharacter::DodgeActionEnd);
+	AnimInstance->Montage_SetEndDelegate(EndDelegate, DodgeMontage);
 }
 
 

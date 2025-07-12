@@ -19,7 +19,6 @@ void ULWAnimInstance::NativeInitializeAnimation()
 	if (Owner)
 	{
 		Movement = Owner->GetCharacterMovement();
-
 	}
 }
 

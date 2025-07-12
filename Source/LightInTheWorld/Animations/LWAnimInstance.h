@@ -47,7 +47,4 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Character)
 	float JumpingThreshould;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Character)
-	float DodgeSpeed;
 };
