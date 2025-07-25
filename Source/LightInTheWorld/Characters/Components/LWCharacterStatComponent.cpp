@@ -6,11 +6,12 @@
 
 ULWCharacterStatComponent::ULWCharacterStatComponent()
 {
-
 	CurrentLevel = 1;
-	AttackRadius = 50.f; // Must be modified
+	AttackRadius = 50.f; // MBM
 
 	bWantsInitializeComponent = true;
+
+	UE_LOG(LogTemp, Warning, TEXT("ULWCharacterStatComponent::ULWCharacterStatComponent() - BaseStat.MaxHp: %f"), BaseStat.MaxHp);
 }
 
 void ULWCharacterStatComponent::InitializeComponent()
@@ -19,6 +20,8 @@ void ULWCharacterStatComponent::InitializeComponent()
 
 	SetLevelStat(CurrentLevel);
 	SetHp(BaseStat.MaxHp);
+
+	UE_LOG(LogTemp, Warning, TEXT("ULWCharacterStatComponent::InitializeComponent() - BaseStat.MaxHp: %f"), BaseStat.MaxHp);
 }
 
 float ULWCharacterStatComponent::ApplyDamage(float InDamage)
@@ -27,6 +30,7 @@ float ULWCharacterStatComponent::ApplyDamage(float InDamage)
 	const float ActualDamage = FMath::Clamp<float>(InDamage, 0.f, InDamage);
 
 	SetHp(PrevHp - ActualDamage);
+
 	if (CurrentHp <= KINDA_SMALL_NUMBER)
 	{
 		// Dead
@@ -45,7 +49,7 @@ void ULWCharacterStatComponent::SetLevelStat(int32 NewLevel)
 
 void ULWCharacterStatComponent::SetHp(float NewHp)
 {
-	CurrentHp = FMath::Clamp<float>(CurrentHp + NewHp, 0, BaseStat.MaxHp);
+	CurrentHp = FMath::Clamp<float>(NewHp, 0, BaseStat.MaxHp);
 
 	OnHpChanged.Broadcast(CurrentHp);
 }

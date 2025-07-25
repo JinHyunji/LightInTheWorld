@@ -10,7 +10,7 @@ struct FLWCharacterStat : public FTableRowBase
 	GENERATED_BODY()
 
 public:
-	FLWCharacterStat() {}
+	FLWCharacterStat() {};
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Stat)
 	float MaxHp;
@@ -29,17 +29,12 @@ public:
 
 	FLWCharacterStat operator+(const FLWCharacterStat& Other) const
 	{
-		const float* const ThisPtr = reinterpret_cast<const float* const>(this);
-		const float* const OtherPtr = reinterpret_cast<const float* const>(&Other);
-
 		FLWCharacterStat Result;
-		float* ResultPtr = reinterpret_cast<float*>(&Result);
-		int32 StatNum = sizeof(FLWCharacterStat) / sizeof(float);
-		for (int32 i = 0; i < StatNum; i++)
-		{
-			ResultPtr[i] = ThisPtr[i] + OtherPtr[i];
-		}
-
+		Result.MaxHp = MaxHp + Other.MaxHp;
+		Result.Attack = Attack + Other.Attack;
+		Result.AttackRange = AttackRange + Other.AttackRange;
+		Result.AttackSpeed = AttackSpeed + Other.AttackSpeed;
+		Result.MovementSpeed = MovementSpeed + Other.MovementSpeed;
 		return Result;
 	}
 };

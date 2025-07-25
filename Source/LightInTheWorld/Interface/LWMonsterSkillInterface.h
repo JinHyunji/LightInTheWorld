@@ -4,11 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
-#include "LWAnimationAttackInterface.generated.h"
+#include "LWMonsterSkillInterface.generated.h"
 
 // This class does not need to be modified.
 UINTERFACE(MinimalAPI)
-class ULWAnimationAttackInterface : public UInterface
+class ULWMonsterSkillInterface : public UInterface
 {
 	GENERATED_BODY()
 };
@@ -16,13 +16,12 @@ class ULWAnimationAttackInterface : public UInterface
 /**
  * 
  */
-class LIGHTINTHEWORLD_API ILWAnimationAttackInterface
+class LIGHTINTHEWORLD_API ILWMonsterSkillInterface
 {
 	GENERATED_BODY()
 
 	// Add interface functions to this class. This is the class that will be inherited to implement this interface.
 public:
-	virtual void AttackHitCheck() = 0;
-	virtual void EnableSwordTrace() = 0;
-	virtual void DisableSwordTrace() = 0;
+	virtual void NormalAttack() = 0;
+	virtual void CastSkill(int32 SkillIndex) {};
 };

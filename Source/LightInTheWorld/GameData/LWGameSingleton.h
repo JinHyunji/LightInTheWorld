@@ -21,7 +21,7 @@ public:
 	static ULWGameSingleton& Get();
 
 public:
-	FORCEINLINE FLWCharacterStat GetCharacterStat(int32 InLevel) const { return CharacterStatTable.IsValidIndex(InLevel -1) ? CharacterStatTable[InLevel - 1] : FLWCharacterStat(); }
+	FORCEINLINE FLWCharacterStat GetCharacterStat(int32 InLevel) const { return CharacterStatTable.IsValidIndex(InLevel - 1) ? CharacterStatTable[InLevel - 1] : FLWCharacterStat(); }
 
 	UPROPERTY()
 	int32 CharacterMaxLevel;

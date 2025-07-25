@@ -9,7 +9,7 @@
 #include "InputMappingContext.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "LWCharacterControlData.h"
+#include "Characters/LWCharacterControlData.h"
 #include "LWComboActionData.h"
 #include "Characters/Components/LWCharacterStatComponent.h"
 #include "Physics/LWCollision.h"
@@ -17,32 +17,11 @@
 #include "UI/LWHpBarWidget.h"
 #include "UI/LWHUDWidget.h"
 #include "Engine/DamageEvents.h"
+#include "NiagaraFunctionLibrary.h"
+
 
 ALWPlayerCharacter::ALWPlayerCharacter()
 {
-	// Pawn
-	bUseControllerRotationRoll = false; // X
-	bUseControllerRotationPitch = false; // Y
-	bUseControllerRotationYaw = false; // Z
-
-	// Capsule
-	GetCapsuleComponent()->InitCapsuleSize(50.f, 100.f);
-	GetCapsuleComponent()->SetCollisionProfileName(CPROFILE_LWCAPSULE);
-
-	// Movement
-	GetCharacterMovement()->bOrientRotationToMovement = true;
-	GetCharacterMovement()->RotationRate = FRotator(0.f, 360.f, 0.f); // Pitch, Yaw, Roll
-	GetCharacterMovement()->JumpZVelocity = 500.f;
-	GetCharacterMovement()->AirControl = 0.35f;
-	GetCharacterMovement()->MaxWalkSpeed = 500.f;
-	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
-	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
-
-	// Mesh
-	GetMesh()->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -100.f), FRotator(0.f, -90.f, 0.f));
-	GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
-	GetMesh()->SetCollisionProfileName(TEXT("NoCollision"));
-
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CharacterMeshRef(TEXT("/Script/Engine.SkeletalMesh'/Game/ParagonAurora/Characters/Heroes/Aurora/Skins/FrozenHearth/Meshes/Aurora_FrozenHearth.Aurora_FrozenHearth'"));
 	if (CharacterMeshRef.Object)
 	{
@@ -54,19 +33,6 @@ ALWPlayerCharacter::ALWPlayerCharacter()
 	if (AnimInstanceClassRef.Class)
 	{
 		GetMesh()->SetAnimInstanceClass(AnimInstanceClassRef.Class);
-	}
-
-	// Character Control Data
-	static ConstructorHelpers::FObjectFinder<ULWCharacterControlData> ShoulderDataRef(TEXT("/Script/LightInTheWorld.LWCharacterControlData'/Game/LightInTheWorld/CharacterControl/LWC_Shoulder.LWC_Shoulder'"));
-	if (ShoulderDataRef.Object)
-	{
-		CharacterControlManager.Emplace(ECharacterControlType::Shoulder, ShoulderDataRef.Object);
-	}
-
-	static ConstructorHelpers::FObjectFinder<ULWCharacterControlData> QuaterDataRef(TEXT("/Script/LightInTheWorld.LWCharacterControlData'/Game/LightInTheWorld/CharacterControl/LWC_Quater.LWC_Quater'"));
-	if (QuaterDataRef.Object)
-	{
-		CharacterControlManager.Emplace(ECharacterControlType::Quater, QuaterDataRef.Object);
 	}
 
 	CurrentCharacterControlType = ECharacterControlType::Shoulder;
@@ -131,10 +97,22 @@ ALWPlayerCharacter::ALWPlayerCharacter()
 		InteractionAction = InputInteractionActionRef.Object;
 	}
 
-	static ConstructorHelpers::FObjectFinder<UInputAction> InputSkillActionRef(TEXT("/Script/EnhancedInput.InputAction'/Game/LightInTheWorld/Input/Actions/IA_Skill.IA_Skill'"));
-	if (InputSkillActionRef.Object)
+	static ConstructorHelpers::FObjectFinder<UInputAction> InputSkillOneActionRef(TEXT("/Script/EnhancedInput.InputAction'/Game/LightInTheWorld/Input/Actions/IA_Skill1.IA_Skill1'"));
+	if (InputSkillOneActionRef.Object)
 	{
-		SkillAction = InputSkillActionRef.Object;
+		SkillOneAction = InputSkillOneActionRef.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> InputSkillTwoActionRef(TEXT("/Script/EnhancedInput.InputAction'/Game/LightInTheWorld/Input/Actions/IA_Skill2.IA_Skill2'"));
+	if (InputSkillTwoActionRef.Object)
+	{
+		SkillTwoAction = InputSkillTwoActionRef.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> InputUltimateActionRef(TEXT("/Script/EnhancedInput.InputAction'/Game/LightInTheWorld/Input/Actions/IA_Ultimate.IA_Ultimate'"));
+	if (InputUltimateActionRef.Object)
+	{
+		UltimateAction = InputUltimateActionRef.Object;
 	}
 
 	static ConstructorHelpers::FObjectFinder<UInputAction> InputAttackActionRef(TEXT("/Script/EnhancedInput.InputAction'/Game/LightInTheWorld/Input/Actions/IA_Attack.IA_Attack'"));
@@ -144,6 +122,12 @@ ALWPlayerCharacter::ALWPlayerCharacter()
 	}
 
 	// Combo Action
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageRef(TEXT("/Script/Engine.AnimMontage'/Game/LightInTheWorld/Animation/AM_Attack.AM_Attack'"));
+	if (AttackMontageRef.Object)
+	{
+		AttackMontage = AttackMontageRef.Object;
+	}
+
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> ComboActionMontageRef(TEXT("/Script/Engine.AnimMontage'/Game/LightInTheWorld/Animation/AM_ComboAttack.AM_ComboAttack'"));
 	if (ComboActionMontageRef.Object)
 	{
@@ -156,36 +140,19 @@ ALWPlayerCharacter::ALWPlayerCharacter()
 		ComboActionData = ComboActionDataRef.Object;
 	}
 
+	// Dead Montage
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> DeadMontageRef(TEXT("/Script/Engine.AnimMontage'/Game/LightInTheWorld/Animation/AM_Dead.AM_Dead'"));
+	if (DeadMontageRef.Object)
+	{
+		DeadMontage = DeadMontageRef.Object;
+	}
+
 	// Dodge
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> DodgeMontageRef(TEXT("/Script/Engine.AnimMontage'/Game/LightInTheWorld/Animation/AM_Dodge.AM_Dodge'"));
 	if (DodgeMontageRef.Object)
 	{
 		DodgeMontage = DodgeMontageRef.Object;
 	}
-
-	// Stat Component
-	Stat = CreateDefaultSubobject<ULWCharacterStatComponent>(TEXT("Stat"));
-
-	// Character Widget Component
-	//HpBar = CreateDefaultSubobject<ULWWidgetComponent>(TEXT("Widget"));
-	//HpBar->SetupAttachment(GetMesh());
-	//HpBar->SetRelativeLocation(FVector(0.f, 0.f, 200.f));
-	//static ConstructorHelpers::FClassFinder<UUserWidget> HpBarWidgetRef(TEXT("/Game/LightInTheWorld/UI/WBP_HpBar.WBP_HpBar_C"));
-	//if (HpBarWidgetRef.Class)
-	//{
-	//	HpBar->SetWidgetClass(HpBarWidgetRef.Class);
-	//	HpBar->SetWidgetSpace(EWidgetSpace::Screen); // 2D
-	//	HpBar->SetDrawSize(FVector2D(190.f, 25.f));
-	//	HpBar->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	//}
-}
-
-void ALWPlayerCharacter::PostInitializeComponents()
-{
-	Super::PostInitializeComponents();
-
-	//Stat->OnHpZero.AddUObject(this, &ALWPlayerCharacter::SetDead);
-	Stat->OnStatChanged.AddUObject(this, &ALWPlayerCharacter::ApplyStat);
 }
 
 void ALWPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -204,23 +171,10 @@ void ALWPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EnhancedInputComponent->BindAction(QuaterMoveAction, ETriggerEvent::Triggered, this, &ALWPlayerCharacter::QuaterMove);
 	EnhancedInputComponent->BindAction(InventoryAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::ShowInventory);
 	EnhancedInputComponent->BindAction(InteractionAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::Interaction);
+	EnhancedInputComponent->BindAction(SkillOneAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::SkillOne);
+	EnhancedInputComponent->BindAction(SkillTwoAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::SkillTwo);
+	EnhancedInputComponent->BindAction(UltimateAction, ETriggerEvent::Started, this, &ALWPlayerCharacter::Ultimate);
 
-}
-
-int32 ALWPlayerCharacter::GetLevel()
-{
-	return Stat->GetCurrentLevel();
-}
-
-void ALWPlayerCharacter::SetLevel(int32 NewLevel)
-{
-	Stat->SetLevelStat(NewLevel);
-}
-
-void ALWPlayerCharacter::ApplyStat(const FLWCharacterStat& BaseStat, const FLWCharacterStat& ModifierStat)
-{
-	float MovementSpeed = (BaseStat + ModifierStat).MovementSpeed;
-	GetCharacterMovement()->MaxWalkSpeed = MovementSpeed;
 }
 
 void ALWPlayerCharacter::BeginPlay()
@@ -236,16 +190,10 @@ void ALWPlayerCharacter::BeginPlay()
 	SetCharacterControl(CurrentCharacterControlType);
 }
 
-void ALWPlayerCharacter::SetCharacterControlData(const ULWCharacterControlData* CharacterControlData)
+void ALWPlayerCharacter::SetCharacterControlData(const class ULWCharacterControlData* CharacterControlData)
 {
-	// Pawn
-	bUseControllerRotationYaw = CharacterControlData->bUseControllerRotationYaw;
-
-	// CharacterMovement
-	GetCharacterMovement()->bOrientRotationToMovement = CharacterControlData->bOrientRotationToMovement;
-	GetCharacterMovement()->bUseControllerDesiredRotation = CharacterControlData->bUseControllerDesiredRotation;
-	GetCharacterMovement()->RotationRate = CharacterControlData->RotationRate;
-
+	Super::SetCharacterControlData(CharacterControlData);
+	
 	// Camera
 	CameraBoom->TargetArmLength = CharacterControlData->TargetArmLength;
 	CameraBoom->SetRelativeRotation(CharacterControlData->RelativeRotation);
@@ -279,6 +227,8 @@ void ALWPlayerCharacter::SetCharacterControl(ECharacterControlType NewCharacterC
 
 void ALWPlayerCharacter::ShoulderMove(const FInputActionValue& Value)
 {
+	if (bIsAttacking) return;
+
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
 	const FRotator Rotation = Controller->GetControlRotation();
@@ -301,6 +251,8 @@ void ALWPlayerCharacter::ShoulderLook(const FInputActionValue& Value)
 
 void ALWPlayerCharacter::QuaterMove(const FInputActionValue& Value)
 {
+	if (bIsAttacking) return;
+
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
 	float MovementVectorSize = 1.f;
@@ -371,7 +323,6 @@ void ALWPlayerCharacter::ExecuteComboAction()
 	SetComboCheckTimer();
 }
 
-
 void ALWPlayerCharacter::ComboActionEnd(UAnimMontage* TargetMontage, bool IsProperlyEnded)
 {
 	ensure(CurrentCombo != 0);
@@ -427,24 +378,120 @@ void ALWPlayerCharacter::ChangeCharacterControl()
 
 void ALWPlayerCharacter::Attack()
 {
-	ProcessComboCommand();
+	//ProcessComboCommand();
+
+	if (bIsAttacking) return;
+
+	bIsAttacking = true;
+
+	const float AttackSpeedRate = Stat->GetTotalStat().AttackSpeed;
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && AttackMontage)
+	{
+		AnimInstance->Montage_Play(AttackMontage); // AttackSpeedRate ? MBM
+
+		FOnMontageEnded EndDelegate;
+		EndDelegate.BindUObject(this, &ALWPlayerCharacter::OnAttackMontageEnded);
+		AnimInstance->Montage_SetEndDelegate(EndDelegate, AttackMontage);
+	}
 }
 
-void ALWPlayerCharacter::Landed(const FHitResult& Hit)
+void ALWPlayerCharacter::TraceSword()
 {
-	Super::Landed(Hit);
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(Attack), false, this);
 
-	if (bPendingAttackOnLanding)
+	FVector Start = GetMesh()->GetSocketLocation(TEXT("Sword_Base"));
+	FVector End = GetMesh()->GetSocketLocation(TEXT("Sword_Tip"));
+	const float AttackRange = Stat->GetTotalStat().AttackRange;
+	const float AttackRadius = Stat->GetAttackRadius();
+	const float AttackDamage = Stat->GetTotalStat().Attack;
+
+	bool bHit = GetWorld()->SweepSingleByChannel(
+		Hit,
+		Start,
+		End,
+		FQuat::Identity,
+		CCHANNEL_LWACTION,
+		FCollisionShape::MakeSphere(AttackRadius),
+		Params
+	);
+
+	if (bHit)
 	{
-		bPendingAttackOnLanding = false;
-		ComboActionBegin();
+		ALWBaseCharacter* HitActor = Cast<ALWBaseCharacter>(Hit.GetActor());
+
+		if (HitActor && !HitActors.Contains(HitActor))
+		{
+			HitActors.Add(HitActor);
+
+			// 피격 처리
+			FDamageEvent DamageEvent;
+			HitActor->TakeDamage(AttackDamage, DamageEvent, GetController(), this);
+
+			// 이펙트 -> MBM
+			if (HitEffect)
+			{
+				UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+					GetWorld(),
+					HitEffect,
+					Hit.ImpactPoint,
+					Hit.ImpactNormal.Rotation()
+				);
+			}
+
+			// MBM
+			//if (HitCameraShake) 
+			//{
+			//	GetWorld()->GetFirstPlayerController()->ClientStartCameraShake(HitCameraShake);
+			//}
+		}
 	}
+
+	FVector CapsuleOrigin = (Start + End) * 0.5f;
+	float CapsuleHalfHeight = (Start - End).Size() * 0.5f;
+	FColor DrawColor = bHit ? FColor::Green : FColor::Red;
+
+	DrawDebugCapsule(
+		GetWorld(), 
+		CapsuleOrigin, 
+		CapsuleHalfHeight, 
+		AttackRadius, 
+		FRotationMatrix::MakeFromZ(End - Start).ToQuat(),
+		DrawColor, 
+		false, 
+		2.f
+	);
+}
+
+void ALWPlayerCharacter::EnableSwordTrace()
+{
+	HitActors.Empty();
+
+	GetWorld()->GetTimerManager().SetTimer(
+		SwordTraceTimerHandle,
+		this,
+		&ALWPlayerCharacter::TraceSword,
+		0.02f,
+		true
+	);
+}
+
+void ALWPlayerCharacter::DisableSwordTrace()
+{
+	GetWorld()->GetTimerManager().ClearTimer(SwordTraceTimerHandle);
+	HitActors.Empty();
+}
+
+void ALWPlayerCharacter::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	bIsAttacking = false;
 }
 
 void ALWPlayerCharacter::AttackHitCheck()
 {
 	FHitResult OutHitResult;
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(Attack), false, this); 
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(Attack), false, this);
 
 	const float AttackRange = Stat->GetTotalStat().AttackRange;
 	const float AttackRadius = Stat->GetAttackRadius();
@@ -458,36 +505,54 @@ void ALWPlayerCharacter::AttackHitCheck()
 		FDamageEvent DamageEvent;
 		OutHitResult.GetActor()->TakeDamage(AttackDamage, DamageEvent, GetController(), this);
 	}
-	
+
 #if ENABLE_DRAW_DEBUG
 	FVector CapsuleOrigin = Start + (End - Start) * 0.5;
 	float CapsuleHalfHeight = AttackRange * 0.5f + AttackRadius;
-	FColor DrawColor = HitDetected ? FColor::Green : FColor::Red;
+	FColor DrawColor = HitDetected ? FColor:: Green : FColor::Red;
 
 	DrawDebugCapsule(GetWorld(), CapsuleOrigin, CapsuleHalfHeight, AttackRadius, FRotationMatrix::MakeFromZ(GetActorForwardVector()).ToQuat(), DrawColor, false, 5.f);
-	//DrawDebugCapsule(GetWorld(), GetActorLocation(), 88.f, 34.f, FQuat::Identity, FColor::Red, false, 5.f);
 #endif
 }
 
-float ALWPlayerCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+void ALWPlayerCharacter::SkillOne()
 {
-	Super::TakeDamage(Damage, DamageEvent, EventInstigator, DamageCauser);
+	UE_LOG(LogTemp, Log, TEXT("Pressed SkillOne"));
 
-	Stat->ApplyDamage(Damage);
-
-	return Damage;
 }
 
-
-void ALWPlayerCharacter::SetupCharacterWidget(ULWUserWidget* InUserWidget)
+void ALWPlayerCharacter::SkillTwo()
 {
-	ULWHpBarWidget* HpBarWidget = Cast<ULWHpBarWidget>(InUserWidget);
-	if (HpBarWidget)
+	UE_LOG(LogTemp, Log, TEXT("Pressed SkillTwo"));
+
+}
+
+void ALWPlayerCharacter::Ultimate()
+{
+	UE_LOG(LogTemp, Log, TEXT("Pressed Ultimate"));
+
+}
+
+void ALWPlayerCharacter::PlayDeadAnimation()
+{
+	Super::PlayDeadAnimation();
+
+		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance)
 	{
-		HpBarWidget->UpdateStat(Stat->GetBaseStat(), Stat->GetModifierStat());
-		HpBarWidget->UpdateHpBar(Stat->GetCurrentHp());
-		Stat->OnHpChanged.AddUObject(HpBarWidget, &ULWHpBarWidget::UpdateHpBar);
-		Stat->OnStatChanged.AddUObject(HpBarWidget, &ULWHpBarWidget::UpdateStat);
+		AnimInstance->StopAllMontages(0.f);
+		AnimInstance->Montage_Play(DeadMontage, 1.f);
+	}
+}
+
+void ALWPlayerCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+
+	if (bPendingAttackOnLanding)
+	{
+		bPendingAttackOnLanding = false;
+		ComboActionBegin();
 	}
 }
 
@@ -517,15 +582,6 @@ void ALWPlayerCharacter::Dodge()
 {
 	DodgeActionBegin();
 }
-
-void ALWPlayerCharacter::SetDead()
-{
-}
-
-void ALWPlayerCharacter::PlayDeadAnimation()
-{
-}
-
 
 void ALWPlayerCharacter::DodgeActionBegin()
 {

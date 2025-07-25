@@ -5,44 +5,34 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
-#include "Interface/LWAnimationAttackInterface.h"
-#include "Interface/LWCharacterWidgetInterface.h"
+#include "Characters/LWBaseCharacter.h"
 #include "Interface/LWCharacterHUDInterface.h"
-#include "GameData/LWCharacterStat.h"
+#include "Interface/LWAnimationAttackInterface.h"
 
 #include "LWPlayerCharacter.generated.h"
 
-UENUM()
-enum class ECharacterControlType : uint8
-{
-	Shoulder,
-	Quater
-};
-
 UCLASS()
-class LIGHTINTHEWORLD_API ALWPlayerCharacter : public ACharacter, public ILWAnimationAttackInterface, public ILWCharacterWidgetInterface, public ILWCharacterHUDInterface
+class LIGHTINTHEWORLD_API ALWPlayerCharacter : public ALWBaseCharacter, public ILWCharacterHUDInterface, public ILWAnimationAttackInterface
 {
 	GENERATED_BODY()
 
 public:
 	ALWPlayerCharacter();
 
-	virtual void PostInitializeComponents() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
 protected:
 	virtual void BeginPlay() override;
 
-// Control Data Section
-protected:
-	void SetCharacterControlData(const class ULWCharacterControlData* CharacterControlData);
-	void SetCharacterControl(ECharacterControlType NewCharacterControlType);
-	void ChangeCharacterControl();
 
-	UPROPERTY(EditAnywhere, Category = CharacterControl, Meta = (AllowPrivateAccess = "true"))
-	TMap<ECharacterControlType, class ULWCharacterControlData*> CharacterControlManager;
+// Character Control Section
+protected:
+	void ChangeCharacterControl();
+	void SetCharacterControl(ECharacterControlType NewCharacterControlType);
+	virtual void SetCharacterControlData(const class ULWCharacterControlData* CharacterControlData) override;
 
 	ECharacterControlType CurrentCharacterControlType;
+
 
 // Camera Section
 protected:
@@ -51,6 +41,7 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, Meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UCameraComponent> FollowCamera;
+
 
 // Input Section
 protected:
@@ -85,7 +76,14 @@ protected:
 	TObjectPtr<class UInputAction> DodgeAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, Meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class UInputAction> SkillAction;
+	TObjectPtr<class UInputAction> SkillOneAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, Meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UInputAction> SkillTwoAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, Meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UInputAction> UltimateAction;
+
 
 // Movement Section
 protected:
@@ -94,8 +92,32 @@ protected:
 
 	void QuaterMove(const FInputActionValue& Value);
 
+
 // Attack Section
 protected:
+
+	void Attack();
+	void TraceSword();
+	virtual void EnableSwordTrace() override;
+	virtual void DisableSwordTrace() override;
+	void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animation)
+	TObjectPtr<class UAnimMontage> AttackMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = Effect)
+	TObjectPtr<class UNiagaraSystem> HitEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = Effect)
+	TSubclassOf<UCameraShakeBase> HitCameraShake;
+
+
+	bool bIsAttacking = false;
+
+	virtual void AttackHitCheck() override;
+
+
+	// Not used
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animation)
 	TObjectPtr<class UAnimMontage> ComboActionMontage;
 
@@ -105,8 +127,8 @@ protected:
 	void ProcessComboCommand();
 
 	void ComboActionBegin();
-	void ExecuteComboAction();
 	void ComboActionEnd(class UAnimMontage* TargetMontage, bool IsProperlyEnded);
+	void ExecuteComboAction();
 	virtual void NotifyComboActionEnd();
 	void SetComboCheckTimer();
 	void ComboCheck();
@@ -115,7 +137,22 @@ protected:
 	FTimerHandle ComboTimerHandle;
 	bool HasNextComboCommand = false;
 
-	void Attack();
+private:
+	UPROPERTY()
+	TSet<TObjectPtr<ALWBaseCharacter>> HitActors; // 중복 타격 방지
+	FTimerHandle SwordTraceTimerHandle;
+
+
+// Skill & Ultimate Section
+protected:
+	void SkillOne();
+	void SkillTwo();
+	void Ultimate();
+
+
+// Dead Section
+protected:
+	virtual void PlayDeadAnimation() override;
 
 // Land Section
 protected:
@@ -124,20 +161,6 @@ protected:
 private:
 	bool bPendingAttackOnLanding = false;
 
-// Attack Hit Section
-protected:
-	virtual void AttackHitCheck() override;
-	virtual float TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
-
-// Stat Section
-public:
-	int32 GetLevel();
-	void SetLevel(int32 NewLevel);
-	void ApplyStat(const FLWCharacterStat& BaseStat, const FLWCharacterStat& ModifierStat);
-
-protected:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Stat, Meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class ULWCharacterStatComponent> Stat;
 
 // Dodge Section
 protected:
@@ -150,22 +173,9 @@ protected:
 
 	void Dodge();
 
-// Dead Section
-protected:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Dead, Meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class UAnimMontage> DeadMontage;
-
-	void SetDead();
-	void PlayDeadAnimation();
-
-	float DeadEventDelayTime = 5.0f;
 
 // UI Section
 protected:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Widget, Meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class ULWWidgetComponent> HpBar;
-
-	virtual void SetupCharacterWidget(class ULWUserWidget* InUserWidget) override;
 	virtual void SetupHUDWidget(class ULWHUDWidget* InHUDWidget) override;
 
 protected:
